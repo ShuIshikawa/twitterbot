@@ -213,7 +213,6 @@ if __name__ == '__main__':
         except Exception as e:
             logging(datetime.datetime.now())
             logging(e)
-            logging()
         time.sleep(60)
 
 # nohup python gentei.py > gentei.log &
