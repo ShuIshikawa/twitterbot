@@ -126,7 +126,6 @@ def main():
         except Exception as e:
             logging(datetime.datetime.now())
             logging(e)
-            logging()
         time.sleep(60)
 
 
