@@ -34,7 +34,7 @@ API_KEY = ''
 API_SECRET = ''
 ACCESS_TOKEN = ''
 ACCESS_TOKEN_SECRET = ''
-USER_ID = 
+USER_ID = 0
 
 
 def create_retweet(oauth, tweet_id):
