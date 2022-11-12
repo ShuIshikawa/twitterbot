@@ -118,6 +118,9 @@ def get_stream():
                     if len(json_response['data']['entities']['mentions'])==1:
                         if json_response['data']['entities']['mentions'][0]['username']=='jirolian':
                             create_retweet(json_response['data']['id'])
+                    elif 'urls' in json_response['data']['entities']:
+                        if any([('www.swarmapp.com' in url.get('expanded_url', '')) for url in json_response['data']['entities']['urls']]):
+                            create_retweet(json_response['data']['id'])
 
 
 def main():
