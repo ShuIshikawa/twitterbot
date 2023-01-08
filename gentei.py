@@ -39,11 +39,6 @@ NG_WORDS = [
 ]
 
 
-def logging(text):
-    with open(__file__+'.log', 'a') as f:
-        print(text, file=f)
-
-
 def bearer_oauth_following(r):
     '''
     Method required by bearer token authentication.
@@ -55,8 +50,13 @@ def bearer_oauth_following(r):
 
 
 def connect_to_endpoint(url, params):
-    response = requests.request('GET', url, auth=bearer_oauth_following, params=params)
-    logging(response.status_code)
+    response = requests.request(
+        'GET',
+        url,
+        auth=bearer_oauth_following,
+        params=params
+    )
+    print(response.status_code)
     if response.status_code != 200:
         raise Exception(
             'Request returned an error: {} {}'.format(
@@ -66,11 +66,11 @@ def connect_to_endpoint(url, params):
     return response.json()
 
 
-def get_following_ids():
+def get_following_usernames():
     url = f'https://api.twitter.com/2/users/{USER_ID}/following'
     params = {'user.fields': 'created_at'}
-    following_ids = [user['username'] for user in connect_to_endpoint(url, params)['data']]
-    return sorted(following_ids)
+    following_usernames = [user['username'] for user in connect_to_endpoint(url, params)['data']]
+    return sorted(following_usernames)
 
 
 def make_rules(following_ids):
@@ -141,7 +141,7 @@ def get_rules():
         raise Exception(
             'Cannot get rules (HTTP {}): {}'.format(response.status_code, response.text)
         )
-    logging(json.dumps(response.json()))
+    print(json.dumps(response.json()))
     return response.json()
 
 
@@ -162,7 +162,7 @@ def delete_all_rules(rules):
                 response.status_code, response.text
             )
         )
-    logging(json.dumps(response.json()))
+    print(json.dumps(response.json()))
 
 
 def set_rules(rules):
@@ -176,14 +176,16 @@ def set_rules(rules):
         raise Exception(
             'Cannot add rules (HTTP {}): {}'.format(response.status_code, response.text)
         )
-    logging(json.dumps(response.json()))
+    print(json.dumps(response.json()))
 
 
 def get_stream():
     response = requests.get(
-        'https://api.twitter.com/2/tweets/search/stream', auth=bearer_oauth_stream, stream=True,
+        'https://api.twitter.com/2/tweets/search/stream',
+        auth=bearer_oauth_stream,
+        stream=True,
     )
-    logging(response.status_code)
+    print(response.status_code)
     if response.status_code != 200:
         raise Exception(
             'Cannot get stream (HTTP {}): {}'.format(
@@ -193,26 +195,31 @@ def get_stream():
     for response_line in response.iter_lines():
         if response_line:
             json_response = json.loads(response_line)
-            logging(json.dumps(json_response, indent=4, sort_keys=True))
-            if any(map(lambda x: x in json_response['data']['text'], KEY_WORDS)):
-                if any(map(lambda x: x in json_response['data']['text'], NG_WORDS)):
-                    like_tweet(json_response['data']['id'])
-                else:
-                    create_retweet(json_response['data']['id'])
+            print(datetime.datetime.now())
+            print(json_response)
+            if 'errors' in json_response:
+                time.sleep(60)
+                continue
+            elif 'data' in json_response:
+                if any(map(lambda x: x in json_response['data']['text'], KEY_WORDS)):
+                    if any(map(lambda x: x in json_response['data']['text'], NG_WORDS)):
+                        like_tweet(json_response['data']['id'])
+                    else:
+                        create_retweet(json_response['data']['id'])
 
 
 if __name__ == '__main__':
     rules = get_rules()
     delete_all_rules(rules)
-    following_ids = get_following_ids()
-    rules = make_rules(following_ids)
+    following_usernames = get_following_usernames()
+    rules = make_rules(following_usernames)
     set_rules(rules)
     while True:
         try:
             get_stream()
         except Exception as e:
-            logging(datetime.datetime.now())
-            logging(e)
+            print(datetime.datetime.now())
+            print(e)
         time.sleep(60)
 
-# nohup python gentei.py > gentei.log &
+# nohup python gentei.py >> gentei.log &
