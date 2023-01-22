@@ -1,8 +1,6 @@
 import requests
 from requests_oauthlib import OAuth1Session
-import json
 import datetime
-import time
 
 
 BEARER_TOKEN = ''
@@ -12,6 +10,7 @@ ACCESS_TOKEN = ''
 ACCESS_TOKEN_SECRET = ''
 USER_ID = 0
 
+INTERVAL_MINUTE = 15
 
 KEY_WORDS = [
     '期間限定',
@@ -49,38 +48,31 @@ def bearer_oauth_following(r):
     return r
 
 
-def connect_to_endpoint(url, params):
-    response = requests.request(
-        'GET',
-        url,
-        auth=bearer_oauth_following,
-        params=params
-    )
-    print(response.status_code)
+def bearer_oauth_search(r):
+    '''
+    Method required by bearer token authentication.
+    '''
+
+    r.headers['Authorization'] = f'Bearer {BEARER_TOKEN}'
+    r.headers['User-Agent'] = 'v2RecentSearchPython'
+    return r
+
+
+def connect_to_endpoint(url, bearer_oauth, params):
+    response = requests.get(url, auth=bearer_oauth, params=params)
     if response.status_code != 200:
-        raise Exception(
-            'Request returned an error: {} {}'.format(
-                response.status_code, response.text
-            )
-        )
+        raise Exception(response.status_code, response.text)
     return response.json()
 
 
 def get_following_usernames():
-    url = f'https://api.twitter.com/2/users/{USER_ID}/following'
-    params = {'user.fields': 'created_at'}
-    following_usernames = [user['username'] for user in connect_to_endpoint(url, params)['data']]
-    return sorted(following_usernames)
-
-
-def make_rules(following_ids):
-    rules = [''] * 5
-    for username in following_ids:
-        for i in range(5):
-            if len(rules[i]+' OR from:'+username) + 30 < 512:
-                rules[i] += (' OR from:' + username)
-                break
-    return [{'value': f'-is:retweet -is:reply -is:quote ({rule[4:]})', 'tag': f'rule {i}'} for i, rule in enumerate(rules) if rule != '']
+    return sorted(list(
+        map(lambda x: x['username'], connect_to_endpoint(
+            f'https://api.twitter.com/2/users/{USER_ID}/following',
+            bearer_oauth_following,
+            {'user.fields': 'created_at'}
+        )['data'])
+    ))
 
 
 def create_retweet(tweet_id):
@@ -123,103 +115,63 @@ def like_tweet(tweet_id):
         )
 
 
-def bearer_oauth_stream(r):
-    '''
-    Method required by bearer token authentication.
-    '''
-
-    r.headers['Authorization'] = f'Bearer {BEARER_TOKEN}'
-    r.headers['User-Agent'] = 'v2FilteredStreamPython'
-    return r
-
-
-def get_rules():
-    response = requests.get(
-        'https://api.twitter.com/2/tweets/search/stream/rules', auth=bearer_oauth_stream
+def search(query_params):
+    return connect_to_endpoint(
+        'https://api.twitter.com/2/tweets/search/recent',
+        bearer_oauth_search,
+        query_params
     )
-    if response.status_code != 200:
-        raise Exception(
-            'Cannot get rules (HTTP {}): {}'.format(response.status_code, response.text)
-        )
-    print(json.dumps(response.json()))
-    return response.json()
 
 
-def delete_all_rules(rules):
-    if rules is None or 'data' not in rules:
-        return None
-
-    ids = list(map(lambda rule: rule['id'], rules['data']))
-    payload = {'delete': {'ids': ids}}
-    response = requests.post(
-        'https://api.twitter.com/2/tweets/search/stream/rules',
-        auth=bearer_oauth_stream,
-        json=payload
-    )
-    if response.status_code != 200:
-        raise Exception(
-            'Cannot delete rules (HTTP {}): {}'.format(
-                response.status_code, response.text
-            )
-        )
-    print(json.dumps(response.json()))
-
-
-def set_rules(rules):
-    payload = {'add': rules}
-    response = requests.post(
-        'https://api.twitter.com/2/tweets/search/stream/rules',
-        auth=bearer_oauth_stream,
-        json=payload,
-    )
-    if response.status_code != 201:
-        raise Exception(
-            'Cannot add rules (HTTP {}): {}'.format(response.status_code, response.text)
-        )
-    print(json.dumps(response.json()))
-
-
-def get_stream():
-    response = requests.get(
-        'https://api.twitter.com/2/tweets/search/stream',
-        auth=bearer_oauth_stream,
-        stream=True,
-    )
-    print(response.status_code)
-    if response.status_code != 200:
-        raise Exception(
-            'Cannot get stream (HTTP {}): {}'.format(
-                response.status_code, response.text
-            )
-        )
-    for response_line in response.iter_lines():
-        if response_line:
-            json_response = json.loads(response_line)
-            print(datetime.datetime.now())
-            print(json_response)
-            if 'errors' in json_response:
-                time.sleep(60)
-                continue
-            elif 'data' in json_response:
-                if any(map(lambda x: x in json_response['data']['text'], KEY_WORDS)):
-                    if any(map(lambda x: x in json_response['data']['text'], NG_WORDS)):
-                        like_tweet(json_response['data']['id'])
-                    else:
-                        create_retweet(json_response['data']['id'])
+def query_format(usernames):
+    return f'({" OR ".join(KEY_WORDS)}) ({" OR from:".join(usernames)}) -is:retweet -is:reply -is:quote'
 
 
 if __name__ == '__main__':
-    rules = get_rules()
-    delete_all_rules(rules)
-    following_usernames = get_following_usernames()
-    rules = make_rules(following_usernames)
-    set_rules(rules)
-    while True:
-        try:
-            get_stream()
-        except Exception as e:
-            print(datetime.datetime.now())
-            print(e)
-        time.sleep(60)
 
-# nohup python gentei.py >> gentei.log &
+    print('-'*64)
+
+    now = datetime.datetime.now()
+    print(now)
+    now = now.replace(
+        minute=now.minute - now.minute % INTERVAL_MINUTE + 5,
+        second=0,
+        microsecond=0
+    )
+
+    following_usernames = get_following_usernames()
+    print('Got following usernames')
+
+    queries = []
+    usernames = []
+    for username in following_usernames:
+        if len(query_format(usernames+[username])) < 512:
+            usernames.append(username)
+        else:
+            queries.append(query_format(usernames))
+            usernames = [username]
+    if len(usernames) > 0:
+        queries.append(query_format(usernames))
+
+    query_params = [{
+        'query': query,
+        'start_time': (now - datetime.timedelta(minutes=INTERVAL_MINUTE)).isoformat()+'Z',
+        'end_time': now.isoformat()+'Z',
+        'tweet.fields': 'id,text,created_at,source',
+    } for query in queries]
+
+    search_results = []
+    for query_param in query_params:
+        search_results = search_results + search(query_param).get('data', [])
+    print(f'Got {len(search_results)} search result')
+
+    for data in search_results:
+        if (text:=data.get('text', ''))!='':
+            if any(map(lambda x: x in text, NG_WORDS)):
+                if (id_:=data.get('id', ''))!='':
+                    like_tweet(id_)
+                    print(f'Liked\n{data}')
+            else:
+                if (id_:=data.get('id', ''))!='':
+                    create_retweet(id_)
+                    print(f'Retweeted\n{data}')
